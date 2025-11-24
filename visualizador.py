@@ -17,12 +17,13 @@ NOME_DO_AUTOR = "Lucas Henrique de Oliveira"
 
 # --- Constantes de Estilo ---
 BG_COLOR = "#2E2E2E"
+PANEL_BG_COLOR = "#3E3E3E"
 TEXT_COLOR = "#FFFFFF"
 LINK_COLOR = "#6495ED"
 BTN_BG_COLOR = "#4A4A4A"
 BTN_HOVER_COLOR = "#6E6E6E"
 FONT_TUPLE = ("Segoe UI", 10)
-FONT_TUPLE_BOLD = ("Segoe UI", 16, "bold")
+FONT_TUPLE_BOLD = ("Segoe UI", 12, "bold")
 FONT_ICON = ("Segoe UI", 12)
 
 # ===================================================================
@@ -32,7 +33,7 @@ class ImageViewer(tk.Tk):
     def __init__(self, file_path=None): 
         super().__init__()
         self.title(NOME_DO_APP)
-        self.geometry("1000x750")
+        self.geometry("1200x750")
 
         try:
             if hasattr(sys, '_MEIPASS'):
@@ -53,18 +54,15 @@ class ImageViewer(tk.Tk):
         self.edited_pil_image = None
         self.tk_image_ref = None
         self.zoom_level = 1.0
+        self.show_info_panel = True
         
-        # --- Variáveis de Corte (Crop) ---
+        # Variáveis de Corte e Pan
         self.cropping = False
-        self.crop_start_x, self.crop_start_y = 0, 0
-        self.crop_rect_id = None
-        
-        # --- Variáveis de Arrastar (Pan) ---
+        self.crop_start_x, self.crop_start_y, self.crop_rect_id = 0, 0, None
         self.pan_start_x, self.pan_start_y = 0, 0
         self.canvas_drag_start_x, self.canvas_drag_start_y = 0, 0
-
         self.image_on_canvas_id = None
-        self.canvas_image_coords = (0, 0) # (x, y) do canto superior esquerdo da imagem no canvas
+        self.canvas_image_coords = (0, 0)
         
         # --- Interface ---
         self.top_frame = tk.Frame(self, bg=BG_COLOR)
@@ -76,24 +74,94 @@ class ImageViewer(tk.Tk):
         self.file_status_label.pack(side='left')
         self.author_label = tk.Label(self.status_frame, text=NOME_DO_AUTOR, fg=TEXT_COLOR, bg=BG_COLOR, anchor='e', font=FONT_TUPLE)
         self.author_label.pack(side='right')
-        
-        self.canvas = tk.Canvas(self, bg=BG_COLOR, highlightthickness=0, cursor="arrow")
-        self.canvas.pack(expand=True, fill='both')
+
+        # Container principal
+        self.main_container = tk.Frame(self, bg=BG_COLOR)
+        self.main_container.pack(expand=True, fill='both')
+
+        # Painel de Informações (Direita)
+        self.create_info_panel()
+
+        # Canvas (Esquerda/Centro)
+        self.canvas = tk.Canvas(self.main_container, bg=BG_COLOR, highlightthickness=0, cursor="arrow")
+        self.canvas.pack(side='left', expand=True, fill='both')
         
         self.create_initial_button()
         self.create_nav_buttons()
-        self.create_zoom_buttons()
+        self.create_zoom_buttons() # Agora inclui o botão de Info
         self.create_menu()
         self.bind_events()
 
         if file_path:
             self.load_from_file_path(file_path)
 
+    def create_info_panel(self):
+        """Cria o painel lateral com informações técnicas."""
+        self.info_frame = tk.Frame(self.main_container, bg=PANEL_BG_COLOR, width=250, padx=10, pady=10)
+        self.info_frame.pack_propagate(False)
+        self.info_frame.pack(side='right', fill='y')
+        
+        # Bind de Duplo Clique para fechar o painel
+        self.info_frame.bind("<Double-Button-1>", lambda e: self.toggle_info_panel())
+
+        tk.Label(self.info_frame, text="Propriedades", fg=TEXT_COLOR, bg=PANEL_BG_COLOR, font=("Segoe UI", 14, "bold")).pack(pady=(0, 15), anchor='w')
+
+        self.lbl_filename_val = self.create_info_row("Arquivo:")
+        self.lbl_res_val = self.create_info_row("Resolução:")
+        self.lbl_size_val = self.create_info_row("Tamanho:")
+        self.lbl_format_val = self.create_info_row("Formato:")
+        self.lbl_mode_val = self.create_info_row("Modo de Cor:")
+        self.lbl_path_val = self.create_info_row("Caminho:", wrap=True)
+        
+        # Dica visual no rodapé do painel
+        tk.Label(self.info_frame, text="(Duplo clique para ocultar)", fg="#888888", bg=PANEL_BG_COLOR, font=("Segoe UI", 8)).pack(side='bottom', pady=10)
+
+    def create_info_row(self, title, wrap=False):
+        lbl_title = tk.Label(self.info_frame, text=title, fg="#AAAAAA", bg=PANEL_BG_COLOR, font=("Segoe UI", 9, "bold"))
+        lbl_title.pack(anchor='w')
+        # Bind duplo clique no titulo também
+        lbl_title.bind("<Double-Button-1>", lambda e: self.toggle_info_panel())
+        
+        val_label = tk.Label(self.info_frame, text="-", fg=TEXT_COLOR, bg=PANEL_BG_COLOR, font=("Segoe UI", 10), justify="left", wraplength=230 if wrap else 0)
+        val_label.pack(anchor='w', pady=(0, 10))
+        # Bind duplo clique no valor também
+        val_label.bind("<Double-Button-1>", lambda e: self.toggle_info_panel())
+        return val_label
+
+    def update_info_panel(self, file_path, pil_image):
+        """Atualiza os dados do painel com a imagem carregada."""
+        if not file_path or not pil_image: return
+        try:
+            self.lbl_filename_val.config(text=os.path.basename(file_path))
+            self.lbl_res_val.config(text=f"{pil_image.width} x {pil_image.height} px")
+            size_bytes = os.path.getsize(file_path)
+            if size_bytes < 1024: size_str = f"{size_bytes} bytes"
+            elif size_bytes < 1024*1024: size_str = f"{size_bytes/1024:.1f} KB"
+            else: size_str = f"{size_bytes/(1024*1024):.2f} MB"
+            self.lbl_size_val.config(text=size_str)
+            fmt = pil_image.format if pil_image.format else "Desconhecido"
+            self.lbl_format_val.config(text=fmt)
+            self.lbl_mode_val.config(text=pil_image.mode)
+            self.lbl_path_val.config(text=os.path.dirname(file_path))
+        except Exception as e:
+            print(f"Erro ao ler metadados: {e}")
+
+    def toggle_info_panel(self):
+        """Mostra ou esconde o painel lateral."""
+        if self.show_info_panel:
+            self.info_frame.pack_forget()
+            self.show_info_panel = False
+            # Atualiza visual do botão se quiser (opcional)
+            self.btn_info.config(bg=BTN_BG_COLOR) 
+        else:
+            self.info_frame.pack(side='right', fill='y')
+            self.show_info_panel = True
+            self.btn_info.config(bg=BTN_HOVER_COLOR) # Destaca o botão quando painel ativo
+
     def create_menu(self):
         self.menu_bar = tk.Menu(self)
         self.config(menu=self.menu_bar)
         
-        # Menu Arquivo
         file_menu = tk.Menu(self.menu_bar, tearoff=0) 
         self.menu_bar.add_cascade(label="Arquivo", menu=file_menu)
         file_menu.add_command(label="Abrir Pasta...", command=self.open_folder, accelerator="Ctrl+O")
@@ -103,13 +171,13 @@ class ImageViewer(tk.Tk):
         file_menu.add_separator()
         file_menu.add_command(label="Sair", command=self.quit, accelerator="Esc")
         
-        # Menu Ver
         view_menu = tk.Menu(self.menu_bar, tearoff=0) 
         self.menu_bar.add_cascade(label="Ver", menu=view_menu)
+        view_menu.add_command(label="Alternar Painel de Info", command=self.toggle_info_panel)
+        view_menu.add_separator()
         view_menu.add_command(label="Ajustar à Janela (Reset)", command=self.fit_image_to_window, accelerator="F")
         view_menu.add_command(label="Tamanho Real (100%)", command=lambda: self.set_zoom(1.0), accelerator="R")
 
-        # Menu Editar
         self.edit_menu = tk.Menu(self.menu_bar, tearoff=0) 
         self.menu_bar.add_cascade(label="Editar", menu=self.edit_menu, state="disabled")
         self.edit_menu.add_command(label="Cortar Imagem (Seleção)", command=self.start_crop_mode)
@@ -126,14 +194,12 @@ class ImageViewer(tk.Tk):
         self.edit_menu.add_separator()
         self.edit_menu.add_command(label="Desfazer Alterações", command=self.revert_changes)
 
-        # Menu Ferramentas
         tools_menu = tk.Menu(self.menu_bar, tearoff=0)
         self.menu_bar.add_cascade(label="Ferramentas", menu=tools_menu, state="normal") 
         tools_menu.add_command(label="Padronizar Imagem Atual...", command=self.standardize_current_image)
         tools_menu.add_separator()
         tools_menu.add_command(label="Padronizar Pasta Inteira (Lote)...", command=self.batch_process_images)
         
-        # Menu Ajuda
         help_menu = tk.Menu(self.menu_bar, tearoff=0)
         self.menu_bar.add_cascade(label="Ajuda", menu=help_menu)
         help_menu.add_command(label=f"Sobre {NOME_DO_APP}", command=self.show_about_window)
@@ -146,7 +212,7 @@ class ImageViewer(tk.Tk):
         about_win.configure(bg=BG_COLOR); about_win.resizable(False, False); about_win.transient(self); about_win.grab_set()
         link_font = font.Font(family="Segoe UI", size=10, underline=True)
         tk.Label(about_win, text=NOME_DO_APP, fg=TEXT_COLOR, bg=BG_COLOR, font=("Segoe UI", 20, "bold")).pack(pady=(15, 5))
-        tk.Label(about_win, text="Versão 1.5 (Smart Zoom)", fg=TEXT_COLOR, bg=BG_COLOR, font=FONT_TUPLE).pack()
+        tk.Label(about_win, text="Versão 1.7 (UI+Pan)", fg=TEXT_COLOR, bg=BG_COLOR, font=FONT_TUPLE).pack()
         tk.Label(about_win, text=NOME_DO_AUTOR, fg=TEXT_COLOR, bg=BG_COLOR, font=FONT_TUPLE).pack(pady=10)
         tk.Label(about_win, text="(21) 9 9955-3685", fg=TEXT_COLOR, bg=BG_COLOR, font=FONT_TUPLE).pack()
         github_link = tk.Label(about_win, text="GitHub: LucasHO94", fg=LINK_COLOR, bg=BG_COLOR, font=link_font, cursor="hand2"); github_link.pack()
@@ -164,22 +230,25 @@ class ImageViewer(tk.Tk):
             self.file_status_label.config(text="Nenhuma imagem carregada."); self.title(NOME_DO_APP)
 
     def create_initial_button(self):
-        self.open_folder_btn=tk.Button(self,text="Abrir Pasta",command=self.open_folder,bg=BTN_BG_COLOR,fg=TEXT_COLOR,font=FONT_TUPLE_BOLD,relief='flat',padx=20,pady=10,cursor="hand2",activebackground=BTN_HOVER_COLOR,activeforeground=TEXT_COLOR)
+        self.open_folder_btn=tk.Button(self.canvas,text="Abrir Pasta",command=self.open_folder,bg=BTN_BG_COLOR,fg=TEXT_COLOR,font=FONT_TUPLE_BOLD,relief='flat',padx=20,pady=10,cursor="hand2",activebackground=BTN_HOVER_COLOR,activeforeground=TEXT_COLOR)
         self.open_folder_btn.place(relx=0.5,rely=0.5,anchor='center')
         
     def create_nav_buttons(self):
-        self.prev_btn=tk.Button(self,text="<",command=self.show_previous_image,bg=BTN_BG_COLOR,fg=TEXT_COLOR,font=FONT_TUPLE_BOLD,relief='flat',activebackground=BTN_HOVER_COLOR,activeforeground=TEXT_COLOR)
-        self.next_btn=tk.Button(self,text=">",command=self.show_next_image,bg=BTN_BG_COLOR,fg=TEXT_COLOR,font=FONT_TUPLE_BOLD,relief='flat',activebackground=BTN_HOVER_COLOR,activeforeground=TEXT_COLOR)
+        self.prev_btn=tk.Button(self.canvas,text="<",command=self.show_previous_image,bg=BTN_BG_COLOR,fg=TEXT_COLOR,font=FONT_TUPLE_BOLD,relief='flat',activebackground=BTN_HOVER_COLOR,activeforeground=TEXT_COLOR)
+        self.next_btn=tk.Button(self.canvas,text=">",command=self.show_next_image,bg=BTN_BG_COLOR,fg=TEXT_COLOR,font=FONT_TUPLE_BOLD,relief='flat',activebackground=BTN_HOVER_COLOR,activeforeground=TEXT_COLOR)
         
     def create_zoom_buttons(self):
+        # Botão de Info (Novo) - Adicionado na barra superior
+        self.btn_info = tk.Button(self.top_frame, text="ℹ", command=self.toggle_info_panel, bg=BTN_HOVER_COLOR, fg=TEXT_COLOR, font=FONT_ICON, relief='flat', activebackground=BTN_HOVER_COLOR, activeforeground=TEXT_COLOR)
+        self.btn_info.pack(side='right', padx=(5, 10))
+
         self.zoom_in_btn=tk.Button(self.top_frame,text="🔍+",command=self.zoom_in,bg=BTN_BG_COLOR,fg=TEXT_COLOR,font=FONT_ICON,relief='flat',activebackground=BTN_HOVER_COLOR,activeforeground=TEXT_COLOR)
+        self.zoom_in_btn.pack(side='right')
         self.zoom_out_btn=tk.Button(self.top_frame,text="🔍-",command=self.zoom_out,bg=BTN_BG_COLOR,fg=TEXT_COLOR,font=FONT_ICON,relief='flat',activebackground=BTN_HOVER_COLOR,activeforeground=TEXT_COLOR)
+        self.zoom_out_btn.pack(side='right', padx=5)
         
     def bind_events(self):
-        self.bind_all("<Control-o>",self.open_folder)
-        self.bind_all("<Control-s>",self.save_changes)
-        self.bind_all("<Control-S>",self.save_as)
-        
+        self.bind_all("<Control-o>",self.open_folder);self.bind_all("<Control-s>",self.save_changes);self.bind_all("<Control-S>",self.save_as)
         self.bind('<Left>',self.show_previous_image);self.bind('<Right>',self.show_next_image);self.bind('<Escape>',self.cancel_actions);self.bind('+',self.zoom_in);self.bind('-',self.zoom_out);self.bind('<f>',self.fit_image_to_window);self.bind('<r>',lambda e:self.set_zoom(1.0))
         self.canvas.bind("<ButtonPress-1>", self.on_crop_start);self.canvas.bind("<B1-Motion>", self.on_crop_drag);self.canvas.bind("<ButtonRelease-1>", self.on_crop_end)
         self.canvas.bind("<ButtonPress-2>", self.on_pan_start);self.canvas.bind("<B2-Motion>", self.on_pan_move);self.canvas.bind("<ButtonRelease-2>", self.on_pan_end)
@@ -201,7 +270,7 @@ class ImageViewer(tk.Tk):
         if self.image_list:
             self.open_folder_btn.place_forget()
             self.prev_btn.place(relx=0.0,rely=0.5,anchor='w',x=10);self.next_btn.place(relx=1.0,rely=0.5,anchor='e',x=-10)
-            self.zoom_out_btn.pack(side='right',padx=5);self.zoom_in_btn.pack(side='right')
+            # self.zoom_out_btn.pack(side='right',padx=5);self.zoom_in_btn.pack(side='right') # Já estão no create_zoom_buttons
             self.menu_bar.entryconfig("Editar",state="normal")
             if target_file and target_file in self.image_list: self.current_index = self.image_list.index(target_file)
             else: self.current_index = 0
@@ -214,6 +283,7 @@ class ImageViewer(tk.Tk):
         image_path = self.image_list[self.current_index]
         try:
             self.original_pil_image = Image.open(image_path)
+            self.update_info_panel(image_path, self.original_pil_image)
             if self.original_pil_image.mode not in ('RGB','RGBA'): self.original_pil_image = self.original_pil_image.convert('RGB')
             self.revert_changes()
         except Exception as e:
@@ -224,23 +294,12 @@ class ImageViewer(tk.Tk):
             self.load_image()
 
     def display_tk_image(self, pil_image, specific_position=None):
-        """Exibe a imagem no canvas. Pode receber uma posição específica ou centralizar."""
         self.canvas.delete("all")
-        
-        canvas_w = self.canvas.winfo_width()
-        canvas_h = self.canvas.winfo_height()
+        canvas_w = self.canvas.winfo_width(); canvas_h = self.canvas.winfo_height()
         img_w, img_h = pil_image.size
-        
-        if specific_position:
-            # Se uma posição foi passada (pelo zoom no cursor), usa ela
-            x, y = specific_position
-        else:
-            # Se não (reset ou load inicial), centraliza
-            x = (canvas_w - img_w) / 2
-            y = (canvas_h - img_h) / 2
-            
+        if specific_position: x, y = specific_position
+        else: x = (canvas_w - img_w) / 2; y = (canvas_h - img_h) / 2
         self.canvas_image_coords = (x, y)
-        
         tk_image = ImageTk.PhotoImage(pil_image)
         self.image_on_canvas_id = self.canvas.create_image(x, y, image=tk_image, anchor='nw')
         self.tk_image_ref = tk_image
@@ -253,7 +312,7 @@ class ImageViewer(tk.Tk):
         ratio=min(win_w/img_w,win_h/img_h);new_w,new_h=int(img_w*ratio),int(img_h*ratio)
         resized_image=self.edited_pil_image.resize((new_w,new_h),Image.Resampling.LANCZOS)
         self.zoom_level=ratio
-        self.display_tk_image(resized_image) # Chama sem posição para centralizar
+        self.display_tk_image(resized_image)
         
     def show_next_image(self,event=None):
         if self.image_list:self.current_index=(self.current_index+1)%len(self.image_list);self.load_image()
@@ -383,67 +442,37 @@ class ImageViewer(tk.Tk):
 
     def on_pan_end(self, event):
         if not self.cropping: self.canvas.config(cursor="arrow")
-        # Atualiza as coordenadas globais para que o crop/zoom funcionem na nova posição
-        if self.image_on_canvas_id:
-            self.canvas_image_coords = self.canvas.coords(self.image_on_canvas_id)
+        if self.image_on_canvas_id: self.canvas_image_coords = self.canvas.coords(self.image_on_canvas_id)
         
-    # --- FUNÇÕES DE ZOOM (Com Zoom no Cursor) ---
+    # --- Zoom ---
     def set_zoom(self, zoom_level):
         self.zoom_level = zoom_level
         self.apply_zoom()
     
     def apply_zoom(self, specific_position=None):
-        """Aplica o zoom. Se specific_position for passado, usa para calcular o offset."""
         if not self.original_pil_image: return
-        
         new_w = int(self.original_pil_image.width * self.zoom_level)
         new_h = int(self.original_pil_image.height * self.zoom_level)
-        
         if new_w < 1 or new_h < 1: return
-        
         resized_image = self.edited_pil_image.resize((new_w, new_h), Image.Resampling.LANCZOS)
         self.display_tk_image(resized_image, specific_position)
 
     def on_mouse_wheel(self, event):
-        """Zoom focado na posição do mouse."""
         if not self.original_pil_image: return
-        
-        # 1. Pega a posição do mouse no Canvas
-        mouse_x = self.canvas.canvasx(event.x)
-        mouse_y = self.canvas.canvasy(event.y)
-        
-        # 2. Determina o fator de escala
+        mouse_x = self.canvas.canvasx(event.x); mouse_y = self.canvas.canvasy(event.y)
         scale_factor = 1.1 if event.delta > 0 else 0.9
         new_zoom_level = self.zoom_level * scale_factor
-        
-        # Limites de zoom
         if new_zoom_level > 10.0: new_zoom_level = 10.0
         if new_zoom_level < 0.1: new_zoom_level = 0.1
-        
-        # Se o zoom não mudou (atingiu limite), sai
         if new_zoom_level == self.zoom_level: return
-
-        # 3. Pega a posição atual da imagem no canvas
         img_x, img_y = self.canvas_image_coords
-        
-        # 4. Calcula a nova posição (Matemática do Zoom no Ponto)
-        # A ideia é: (mouse - img_pos) / zoom_antigo = (mouse - nova_img_pos) / novo_zoom
-        # Isso mantém o ponto da imagem sob o mouse estático
         new_img_x = mouse_x - (mouse_x - img_x) * (new_zoom_level / self.zoom_level)
         new_img_y = mouse_y - (mouse_y - img_y) * (new_zoom_level / self.zoom_level)
-        
         self.zoom_level = new_zoom_level
         self.apply_zoom(specific_position=(new_img_x, new_img_y))
 
-    def zoom_in(self, event=None):
-        """Zoom centralizado (botão da interface)."""
-        self.zoom_level = min(10.0, self.zoom_level + 0.1)
-        self.apply_zoom() # Sem posição específica = centralizado
-
-    def zoom_out(self, event=None):
-        """Zoom centralizado (botão da interface)."""
-        self.zoom_level = max(0.1, self.zoom_level - 0.1)
-        self.apply_zoom()
+    def zoom_in(self,event=None):self.zoom_level=min(5.0,self.zoom_level+0.1);self.apply_zoom()
+    def zoom_out(self,event=None):self.zoom_level=max(0.1,self.zoom_level-0.1);self.apply_zoom()
     
     def save_as(self, event=None):
         if not self.edited_pil_image: return
@@ -451,9 +480,7 @@ class ImageViewer(tk.Tk):
         if image_to_save.mode in ('RGBA', 'P'): image_to_save = image_to_save.convert('RGB')
         file_path = filedialog.asksaveasfilename(defaultextension=".jpg", filetypes=[("JPEG", "*.jpg"), ("PNG", "*.png"), ("Bitmap", "*.bmp")])
         if file_path:
-            try:
-                image_to_save.save(file_path)
-                messagebox.showinfo("Sucesso", f"Imagem salva em:\n{file_path}")
+            try: image_to_save.save(file_path); messagebox.showinfo("Sucesso", f"Imagem salva em:\n{file_path}")
             except Exception as e: messagebox.showerror("Erro", f"Erro ao salvar: {e}")
 
     def save_changes(self, event=None):
