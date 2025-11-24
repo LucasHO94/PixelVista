@@ -5,7 +5,7 @@ a = Analysis(
     ['visualizador.py'],
     pathex=[],
     binaries=[],
-    datas=[('icone.ico', '.')],
+    datas=[('icone.ico', '.'), ('Tesseract-OCR', 'Tesseract-OCR')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

@@ -8,7 +8,7 @@ import tkinter as tk
 from tkinter import filedialog, simpledialog, messagebox, font
 from PIL import Image, ImageTk, ImageEnhance, ImageOps
 
-# Tenta importar o pytesseract. Se não tiver, o programa roda sem OCR.
+# Tenta importar o pytesseract
 try:
     import pytesseract
     HAS_OCR = True
@@ -42,19 +42,39 @@ class ImageViewer(tk.Tk):
         self.title(NOME_DO_APP)
         self.geometry("1200x750")
 
-        # Configuração do Tesseract (OCR) - Tenta encontrar o executável
+        # --- CONFIGURAÇÃO DO OCR PORTÁTIL ---
         if HAS_OCR:
-            # Caminhos comuns de instalação do Tesseract no Windows
-            possible_paths = [
-                r'C:\Program Files\Tesseract-OCR\tesseract.exe',
-                r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
-                os.path.join(os.getenv('LOCALAPPDATA', ''), r'Tesseract-OCR\tesseract.exe')
-            ]
-            for path in possible_paths:
-                if os.path.exists(path):
-                    pytesseract.pytesseract.tesseract_cmd = path
-                    break
+            try:
+                if hasattr(sys, '_MEIPASS'):
+                    # Se estiver rodando como .exe (pasta temporária)
+                    base_path = sys._MEIPASS
+                else:
+                    # Se estiver rodando como script .py (pasta atual)
+                    base_path = os.path.dirname(os.path.abspath(__file__))
+                
+                # Define o caminho para a pasta do Tesseract dentro do projeto/exe
+                tesseract_folder = os.path.join(base_path, 'Tesseract-OCR')
+                tesseract_exe = os.path.join(tesseract_folder, 'tesseract.exe')
+                
+                # Verifica se o executável existe no local esperado
+                if os.path.exists(tesseract_exe):
+                    pytesseract.pytesseract.tesseract_cmd = tesseract_exe
+                    # Configura onde estão os dados de linguagem (pasta tessdata)
+                    # Isso é CRUCIAL para funcionar portatilmente
+                    tessdata_dir = os.path.join(tesseract_folder, 'tessdata')
+                    os.environ['TESSDATA_PREFIX'] = tessdata_dir
+                else:
+                    # Fallback: tenta procurar na instalação padrão do Windows se não achar a portátil
+                    # Isso é útil se você esquecer de copiar a pasta antes de rodar o script py
+                    default_path = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+                    if os.path.exists(default_path):
+                        pytesseract.pytesseract.tesseract_cmd = default_path
 
+            except Exception as e:
+                print(f"Erro ao configurar OCR: {e}")
+        # -------------------------------------
+
+        # --- Ícone da Janela ---
         try:
             if hasattr(sys, '_MEIPASS'):
                 base_path = sys._MEIPASS
@@ -198,7 +218,6 @@ class ImageViewer(tk.Tk):
         tools_menu.add_separator()
         tools_menu.add_command(label="Padronizar Pasta Inteira (Lote)...", command=self.batch_process_images)
         tools_menu.add_separator()
-        # NOVO COMANDO DE OCR
         tools_menu.add_command(label="Extrair Texto (OCR)", command=self.perform_ocr_extraction)
         
         help_menu = tk.Menu(self.menu_bar, tearoff=0); self.menu_bar.add_cascade(label="Ajuda", menu=help_menu)
@@ -211,7 +230,7 @@ class ImageViewer(tk.Tk):
         about_win.configure(bg=BG_COLOR); about_win.resizable(False, False); about_win.transient(self); about_win.grab_set()
         link_font = font.Font(family="Segoe UI", size=10, underline=True)
         tk.Label(about_win, text=NOME_DO_APP, fg=TEXT_COLOR, bg=BG_COLOR, font=("Segoe UI", 20, "bold")).pack(pady=(15, 5))
-        tk.Label(about_win, text="Versão 1.8 (OCR)", fg=TEXT_COLOR, bg=BG_COLOR, font=FONT_TUPLE).pack()
+        tk.Label(about_win, text="Versão 1.9 (Portable OCR)", fg=TEXT_COLOR, bg=BG_COLOR, font=FONT_TUPLE).pack()
         tk.Label(about_win, text=NOME_DO_AUTOR, fg=TEXT_COLOR, bg=BG_COLOR, font=FONT_TUPLE).pack(pady=10)
         tk.Label(about_win, text="(21) 9 9955-3685", fg=TEXT_COLOR, bg=BG_COLOR, font=FONT_TUPLE).pack()
         github_link = tk.Label(about_win, text="GitHub: LucasHO94", fg=LINK_COLOR, bg=BG_COLOR, font=link_font, cursor="hand2"); github_link.pack()
@@ -346,7 +365,6 @@ class ImageViewer(tk.Tk):
             self.edited_pil_image=base_image;self.fit_image_to_window();adj_win.destroy()
         tk.Button(adj_win,text="Aplicar",command=apply_all_adjustments).pack(pady=10)
     
-    # --- Padronização ---
     def batch_process_images(self):
         if not self.folder_path: messagebox.showwarning("Aviso", "Abra uma pasta primeiro."); return
         dims = simpledialog.askstring("Padronizar (Lote)", "Tamanho Alvo (LxA):\n(Adicionará bordas brancas)", initialvalue="900x900")
@@ -389,46 +407,21 @@ class ImageViewer(tk.Tk):
             self.edited_pil_image = final_img; self.fit_image_to_window()
         except Exception as e: messagebox.showerror("Erro", f"Erro ao padronizar imagem: {e}")
 
-    # --- OCR (NOVO) ---
+    # --- OCR ---
     def perform_ocr_extraction(self):
         if not HAS_OCR:
-            messagebox.showwarning("OCR Indisponível", "O Tesseract-OCR não foi encontrado ou a biblioteca 'pytesseract' não está instalada.\n\nVerifique se o software Tesseract está instalado no computador.")
+            messagebox.showwarning("OCR Indisponível", "O Tesseract-OCR não foi encontrado.\nInstale o Tesseract e tente novamente.")
             return
-        
         if not self.edited_pil_image: return
-        
         try:
-            # Configuração para o Português (tente 'por' se instalou o pacote de idioma, senão 'eng')
-            # Se falhar o 'por', ele tenta o 'eng' por padrão.
-            try:
-                text = pytesseract.image_to_string(self.edited_pil_image, lang='por')
-            except pytesseract.TesseractError:
-                text = pytesseract.image_to_string(self.edited_pil_image) # Fallback para inglês/padrão
-
-            if not text.strip():
-                messagebox.showinfo("OCR", "Nenhum texto foi detectado na imagem.")
-                return
-
-            # Janela de Resultado
-            ocr_win = tk.Toplevel(self)
-            ocr_win.title("Texto Extraído (OCR)")
-            ocr_win.geometry("600x400")
-            ocr_win.configure(bg=BG_COLOR)
-
-            txt_box = tk.Text(ocr_win, wrap="word", font=("Segoe UI", 11))
-            txt_box.pack(expand=True, fill='both', padx=10, pady=10)
-            txt_box.insert("1.0", text)
-
-            def copy_to_clipboard():
-                self.clipboard_clear()
-                self.clipboard_append(txt_box.get("1.0", "end"))
-                messagebox.showinfo("Copiado", "Texto copiado para a área de transferência!")
-
-            btn_copy = tk.Button(ocr_win, text="Copiar Texto", command=copy_to_clipboard, bg=BTN_BG_COLOR, fg=TEXT_COLOR, font=FONT_TUPLE_BOLD)
-            btn_copy.pack(pady=10)
-
-        except Exception as e:
-            messagebox.showerror("Erro no OCR", f"Falha ao realizar o reconhecimento:\n{e}")
+            try: text = pytesseract.image_to_string(self.edited_pil_image, lang='por')
+            except pytesseract.TesseractError: text = pytesseract.image_to_string(self.edited_pil_image)
+            if not text.strip(): messagebox.showinfo("OCR", "Nenhum texto detectado."); return
+            ocr_win = tk.Toplevel(self); ocr_win.title("Texto Extraído"); ocr_win.geometry("600x400"); ocr_win.configure(bg=BG_COLOR)
+            txt_box = tk.Text(ocr_win, wrap="word", font=("Segoe UI", 11)); txt_box.pack(expand=True, fill='both', padx=10, pady=10); txt_box.insert("1.0", text)
+            def copy(): self.clipboard_clear(); self.clipboard_append(txt_box.get("1.0", "end")); messagebox.showinfo("Copiado", "Texto copiado!")
+            tk.Button(ocr_win, text="Copiar Texto", command=copy, bg=BTN_BG_COLOR, fg=TEXT_COLOR, font=FONT_TUPLE_BOLD).pack(pady=10)
+        except Exception as e: messagebox.showerror("Erro no OCR", f"Falha: {e}")
 
     # --- Funções de Corte ---
     def start_crop_mode(self):
@@ -482,9 +475,7 @@ class ImageViewer(tk.Tk):
         if self.image_on_canvas_id: self.canvas_image_coords = self.canvas.coords(self.image_on_canvas_id)
         
     # --- Zoom ---
-    def set_zoom(self, zoom_level):
-        self.zoom_level = zoom_level
-        self.apply_zoom()
+    def set_zoom(self, zoom_level): self.zoom_level = zoom_level; self.apply_zoom()
     
     def apply_zoom(self, specific_position=None):
         if not self.original_pil_image: return
@@ -531,8 +522,7 @@ class ImageViewer(tk.Tk):
             image_to_save.save(current_file_path)
             self.original_pil_image = self.edited_pil_image.copy()
             messagebox.showinfo("Salvo", "Imagem atualizada com sucesso!")
-        except Exception as e:
-            messagebox.showerror("Erro", f"Não foi possível salvar o arquivo:\n{e}")
+        except Exception as e: messagebox.showerror("Erro", f"Não foi possível salvar o arquivo:\n{e}")
 
 if __name__ == "__main__":
     if len(sys.argv) > 1: file_path_arg = sys.argv[1]
