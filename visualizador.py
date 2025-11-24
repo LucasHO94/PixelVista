@@ -8,6 +8,13 @@ import tkinter as tk
 from tkinter import filedialog, simpledialog, messagebox, font
 from PIL import Image, ImageTk, ImageEnhance, ImageOps
 
+# Tenta importar o pytesseract. Se não tiver, o programa roda sem OCR.
+try:
+    import pytesseract
+    HAS_OCR = True
+except ImportError:
+    HAS_OCR = False
+
 # ===================================================================
 #                      ★ ÁREA DE CUSTOMIZAÇÃO DA MARCA ★
 # ===================================================================
@@ -34,6 +41,19 @@ class ImageViewer(tk.Tk):
         super().__init__()
         self.title(NOME_DO_APP)
         self.geometry("1200x750")
+
+        # Configuração do Tesseract (OCR) - Tenta encontrar o executável
+        if HAS_OCR:
+            # Caminhos comuns de instalação do Tesseract no Windows
+            possible_paths = [
+                r'C:\Program Files\Tesseract-OCR\tesseract.exe',
+                r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
+                os.path.join(os.getenv('LOCALAPPDATA', ''), r'Tesseract-OCR\tesseract.exe')
+            ]
+            for path in possible_paths:
+                if os.path.exists(path):
+                    pytesseract.pytesseract.tesseract_cmd = path
+                    break
 
         try:
             if hasattr(sys, '_MEIPASS'):
@@ -75,20 +95,17 @@ class ImageViewer(tk.Tk):
         self.author_label = tk.Label(self.status_frame, text=NOME_DO_AUTOR, fg=TEXT_COLOR, bg=BG_COLOR, anchor='e', font=FONT_TUPLE)
         self.author_label.pack(side='right')
 
-        # Container principal
         self.main_container = tk.Frame(self, bg=BG_COLOR)
         self.main_container.pack(expand=True, fill='both')
 
-        # Painel de Informações (Direita)
         self.create_info_panel()
 
-        # Canvas (Esquerda/Centro)
         self.canvas = tk.Canvas(self.main_container, bg=BG_COLOR, highlightthickness=0, cursor="arrow")
         self.canvas.pack(side='left', expand=True, fill='both')
         
         self.create_initial_button()
         self.create_nav_buttons()
-        self.create_zoom_buttons() # Agora inclui o botão de Info
+        self.create_zoom_buttons()
         self.create_menu()
         self.bind_events()
 
@@ -96,12 +113,9 @@ class ImageViewer(tk.Tk):
             self.load_from_file_path(file_path)
 
     def create_info_panel(self):
-        """Cria o painel lateral com informações técnicas."""
         self.info_frame = tk.Frame(self.main_container, bg=PANEL_BG_COLOR, width=250, padx=10, pady=10)
         self.info_frame.pack_propagate(False)
         self.info_frame.pack(side='right', fill='y')
-        
-        # Bind de Duplo Clique para fechar o painel
         self.info_frame.bind("<Double-Button-1>", lambda e: self.toggle_info_panel())
 
         tk.Label(self.info_frame, text="Propriedades", fg=TEXT_COLOR, bg=PANEL_BG_COLOR, font=("Segoe UI", 14, "bold")).pack(pady=(0, 15), anchor='w')
@@ -113,23 +127,18 @@ class ImageViewer(tk.Tk):
         self.lbl_mode_val = self.create_info_row("Modo de Cor:")
         self.lbl_path_val = self.create_info_row("Caminho:", wrap=True)
         
-        # Dica visual no rodapé do painel
         tk.Label(self.info_frame, text="(Duplo clique para ocultar)", fg="#888888", bg=PANEL_BG_COLOR, font=("Segoe UI", 8)).pack(side='bottom', pady=10)
 
     def create_info_row(self, title, wrap=False):
         lbl_title = tk.Label(self.info_frame, text=title, fg="#AAAAAA", bg=PANEL_BG_COLOR, font=("Segoe UI", 9, "bold"))
         lbl_title.pack(anchor='w')
-        # Bind duplo clique no titulo também
         lbl_title.bind("<Double-Button-1>", lambda e: self.toggle_info_panel())
-        
         val_label = tk.Label(self.info_frame, text="-", fg=TEXT_COLOR, bg=PANEL_BG_COLOR, font=("Segoe UI", 10), justify="left", wraplength=230 if wrap else 0)
         val_label.pack(anchor='w', pady=(0, 10))
-        # Bind duplo clique no valor também
         val_label.bind("<Double-Button-1>", lambda e: self.toggle_info_panel())
         return val_label
 
     def update_info_panel(self, file_path, pil_image):
-        """Atualiza os dados do painel com a imagem carregada."""
         if not file_path or not pil_image: return
         try:
             self.lbl_filename_val.config(text=os.path.basename(file_path))
@@ -147,39 +156,29 @@ class ImageViewer(tk.Tk):
             print(f"Erro ao ler metadados: {e}")
 
     def toggle_info_panel(self):
-        """Mostra ou esconde o painel lateral."""
         if self.show_info_panel:
-            self.info_frame.pack_forget()
-            self.show_info_panel = False
-            # Atualiza visual do botão se quiser (opcional)
-            self.btn_info.config(bg=BTN_BG_COLOR) 
+            self.info_frame.pack_forget(); self.show_info_panel = False; self.btn_info.config(bg=BTN_BG_COLOR)
         else:
-            self.info_frame.pack(side='right', fill='y')
-            self.show_info_panel = True
-            self.btn_info.config(bg=BTN_HOVER_COLOR) # Destaca o botão quando painel ativo
+            self.info_frame.pack(side='right', fill='y'); self.show_info_panel = True; self.btn_info.config(bg=BTN_HOVER_COLOR)
 
     def create_menu(self):
         self.menu_bar = tk.Menu(self)
         self.config(menu=self.menu_bar)
         
-        file_menu = tk.Menu(self.menu_bar, tearoff=0) 
-        self.menu_bar.add_cascade(label="Arquivo", menu=file_menu)
+        file_menu = tk.Menu(self.menu_bar, tearoff=0); self.menu_bar.add_cascade(label="Arquivo", menu=file_menu)
         file_menu.add_command(label="Abrir Pasta...", command=self.open_folder, accelerator="Ctrl+O")
         file_menu.add_separator()
         file_menu.add_command(label="Salvar (Sobrescrever)", command=self.save_changes, accelerator="Ctrl+S")
         file_menu.add_command(label="Salvar Como...", command=self.save_as, accelerator="Ctrl+Shift+S")
-        file_menu.add_separator()
-        file_menu.add_command(label="Sair", command=self.quit, accelerator="Esc")
+        file_menu.add_separator(); file_menu.add_command(label="Sair", command=self.quit, accelerator="Esc")
         
-        view_menu = tk.Menu(self.menu_bar, tearoff=0) 
-        self.menu_bar.add_cascade(label="Ver", menu=view_menu)
+        view_menu = tk.Menu(self.menu_bar, tearoff=0); self.menu_bar.add_cascade(label="Ver", menu=view_menu)
         view_menu.add_command(label="Alternar Painel de Info", command=self.toggle_info_panel)
         view_menu.add_separator()
         view_menu.add_command(label="Ajustar à Janela (Reset)", command=self.fit_image_to_window, accelerator="F")
         view_menu.add_command(label="Tamanho Real (100%)", command=lambda: self.set_zoom(1.0), accelerator="R")
 
-        self.edit_menu = tk.Menu(self.menu_bar, tearoff=0) 
-        self.menu_bar.add_cascade(label="Editar", menu=self.edit_menu, state="disabled")
+        self.edit_menu = tk.Menu(self.menu_bar, tearoff=0); self.menu_bar.add_cascade(label="Editar", menu=self.edit_menu, state="disabled")
         self.edit_menu.add_command(label="Cortar Imagem (Seleção)", command=self.start_crop_mode)
         self.edit_menu.add_separator()
         self.edit_menu.add_command(label="Rotacionar 90° Direita", command=lambda: self.apply_edit(self.rotate_image, angle=-90))
@@ -194,25 +193,25 @@ class ImageViewer(tk.Tk):
         self.edit_menu.add_separator()
         self.edit_menu.add_command(label="Desfazer Alterações", command=self.revert_changes)
 
-        tools_menu = tk.Menu(self.menu_bar, tearoff=0)
-        self.menu_bar.add_cascade(label="Ferramentas", menu=tools_menu, state="normal") 
+        tools_menu = tk.Menu(self.menu_bar, tearoff=0); self.menu_bar.add_cascade(label="Ferramentas", menu=tools_menu, state="normal") 
         tools_menu.add_command(label="Padronizar Imagem Atual...", command=self.standardize_current_image)
         tools_menu.add_separator()
         tools_menu.add_command(label="Padronizar Pasta Inteira (Lote)...", command=self.batch_process_images)
+        tools_menu.add_separator()
+        # NOVO COMANDO DE OCR
+        tools_menu.add_command(label="Extrair Texto (OCR)", command=self.perform_ocr_extraction)
         
-        help_menu = tk.Menu(self.menu_bar, tearoff=0)
-        self.menu_bar.add_cascade(label="Ajuda", menu=help_menu)
+        help_menu = tk.Menu(self.menu_bar, tearoff=0); self.menu_bar.add_cascade(label="Ajuda", menu=help_menu)
         help_menu.add_command(label=f"Sobre {NOME_DO_APP}", command=self.show_about_window)
 
-    def open_link(self, url):
-        webbrowser.open_new_tab(url)
+    def open_link(self, url): webbrowser.open_new_tab(url)
 
     def show_about_window(self):
         about_win = tk.Toplevel(self); about_win.title(f"Sobre {NOME_DO_APP}"); about_win.geometry("400x250")
         about_win.configure(bg=BG_COLOR); about_win.resizable(False, False); about_win.transient(self); about_win.grab_set()
         link_font = font.Font(family="Segoe UI", size=10, underline=True)
         tk.Label(about_win, text=NOME_DO_APP, fg=TEXT_COLOR, bg=BG_COLOR, font=("Segoe UI", 20, "bold")).pack(pady=(15, 5))
-        tk.Label(about_win, text="Versão 1.7 (UI+Pan)", fg=TEXT_COLOR, bg=BG_COLOR, font=FONT_TUPLE).pack()
+        tk.Label(about_win, text="Versão 1.8 (OCR)", fg=TEXT_COLOR, bg=BG_COLOR, font=FONT_TUPLE).pack()
         tk.Label(about_win, text=NOME_DO_AUTOR, fg=TEXT_COLOR, bg=BG_COLOR, font=FONT_TUPLE).pack(pady=10)
         tk.Label(about_win, text="(21) 9 9955-3685", fg=TEXT_COLOR, bg=BG_COLOR, font=FONT_TUPLE).pack()
         github_link = tk.Label(about_win, text="GitHub: LucasHO94", fg=LINK_COLOR, bg=BG_COLOR, font=link_font, cursor="hand2"); github_link.pack()
@@ -238,10 +237,8 @@ class ImageViewer(tk.Tk):
         self.next_btn=tk.Button(self.canvas,text=">",command=self.show_next_image,bg=BTN_BG_COLOR,fg=TEXT_COLOR,font=FONT_TUPLE_BOLD,relief='flat',activebackground=BTN_HOVER_COLOR,activeforeground=TEXT_COLOR)
         
     def create_zoom_buttons(self):
-        # Botão de Info (Novo) - Adicionado na barra superior
         self.btn_info = tk.Button(self.top_frame, text="ℹ", command=self.toggle_info_panel, bg=BTN_HOVER_COLOR, fg=TEXT_COLOR, font=FONT_ICON, relief='flat', activebackground=BTN_HOVER_COLOR, activeforeground=TEXT_COLOR)
         self.btn_info.pack(side='right', padx=(5, 10))
-
         self.zoom_in_btn=tk.Button(self.top_frame,text="🔍+",command=self.zoom_in,bg=BTN_BG_COLOR,fg=TEXT_COLOR,font=FONT_ICON,relief='flat',activebackground=BTN_HOVER_COLOR,activeforeground=TEXT_COLOR)
         self.zoom_in_btn.pack(side='right')
         self.zoom_out_btn=tk.Button(self.top_frame,text="🔍-",command=self.zoom_out,bg=BTN_BG_COLOR,fg=TEXT_COLOR,font=FONT_ICON,relief='flat',activebackground=BTN_HOVER_COLOR,activeforeground=TEXT_COLOR)
@@ -270,7 +267,6 @@ class ImageViewer(tk.Tk):
         if self.image_list:
             self.open_folder_btn.place_forget()
             self.prev_btn.place(relx=0.0,rely=0.5,anchor='w',x=10);self.next_btn.place(relx=1.0,rely=0.5,anchor='e',x=-10)
-            # self.zoom_out_btn.pack(side='right',padx=5);self.zoom_in_btn.pack(side='right') # Já estão no create_zoom_buttons
             self.menu_bar.entryconfig("Editar",state="normal")
             if target_file and target_file in self.image_list: self.current_index = self.image_list.index(target_file)
             else: self.current_index = 0
@@ -393,6 +389,47 @@ class ImageViewer(tk.Tk):
             self.edited_pil_image = final_img; self.fit_image_to_window()
         except Exception as e: messagebox.showerror("Erro", f"Erro ao padronizar imagem: {e}")
 
+    # --- OCR (NOVO) ---
+    def perform_ocr_extraction(self):
+        if not HAS_OCR:
+            messagebox.showwarning("OCR Indisponível", "O Tesseract-OCR não foi encontrado ou a biblioteca 'pytesseract' não está instalada.\n\nVerifique se o software Tesseract está instalado no computador.")
+            return
+        
+        if not self.edited_pil_image: return
+        
+        try:
+            # Configuração para o Português (tente 'por' se instalou o pacote de idioma, senão 'eng')
+            # Se falhar o 'por', ele tenta o 'eng' por padrão.
+            try:
+                text = pytesseract.image_to_string(self.edited_pil_image, lang='por')
+            except pytesseract.TesseractError:
+                text = pytesseract.image_to_string(self.edited_pil_image) # Fallback para inglês/padrão
+
+            if not text.strip():
+                messagebox.showinfo("OCR", "Nenhum texto foi detectado na imagem.")
+                return
+
+            # Janela de Resultado
+            ocr_win = tk.Toplevel(self)
+            ocr_win.title("Texto Extraído (OCR)")
+            ocr_win.geometry("600x400")
+            ocr_win.configure(bg=BG_COLOR)
+
+            txt_box = tk.Text(ocr_win, wrap="word", font=("Segoe UI", 11))
+            txt_box.pack(expand=True, fill='both', padx=10, pady=10)
+            txt_box.insert("1.0", text)
+
+            def copy_to_clipboard():
+                self.clipboard_clear()
+                self.clipboard_append(txt_box.get("1.0", "end"))
+                messagebox.showinfo("Copiado", "Texto copiado para a área de transferência!")
+
+            btn_copy = tk.Button(ocr_win, text="Copiar Texto", command=copy_to_clipboard, bg=BTN_BG_COLOR, fg=TEXT_COLOR, font=FONT_TUPLE_BOLD)
+            btn_copy.pack(pady=10)
+
+        except Exception as e:
+            messagebox.showerror("Erro no OCR", f"Falha ao realizar o reconhecimento:\n{e}")
+
     # --- Funções de Corte ---
     def start_crop_mode(self):
         if not self.edited_pil_image:return
@@ -494,7 +531,8 @@ class ImageViewer(tk.Tk):
             image_to_save.save(current_file_path)
             self.original_pil_image = self.edited_pil_image.copy()
             messagebox.showinfo("Salvo", "Imagem atualizada com sucesso!")
-        except Exception as e: messagebox.showerror("Erro", f"Não foi possível salvar o arquivo:\n{e}")
+        except Exception as e:
+            messagebox.showerror("Erro", f"Não foi possível salvar o arquivo:\n{e}")
 
 if __name__ == "__main__":
     if len(sys.argv) > 1: file_path_arg = sys.argv[1]
